@@ -1,3 +1,25 @@
+
+//
+// Disclaimer:
+// ----------
+//
+// This code will work only if you selected window, graphics and audio.
+//
+// Note that the "Run Script" build phase will copy the required frameworks
+// or dylibs to your application bundle so you can execute it on any OS X
+// computer.
+//
+// Your resource files (images, sounds, fonts, ...) are also copied to your
+// application bundle. To get the path to these resources, use the helper
+// function `resourcePath()` from ResourcePath.hpp
+//
+
+#include <SFML/Audio.hpp>
+#include <SFML/Graphics.hpp>
+
+// Here is a small helper for you! Have a look.
+#include "ResourcePath.hpp"
+
 #include <iostream>
 #include <chrono>
 #include <thread>
@@ -5,117 +27,10 @@
 #include <queue>
 #include <vector>
 
-class Message {
-public:
-    // mock value
-    int value;
-    Message(int value) {
-        this->value = value;
-    }
-    int getValue() {
-        return value;
-    }
-    ~Message(){}
-};
+#include "Message.hpp"
+#include "Stop.hpp"
 
-// forward declaration
-class Bus;
-class Stop {
-private:
-    bool stopSign = 0;
-    std::mutex * lock;
-    
-    void log(std::string msg) {
-        lock->lock();
-        std::cout << msg << std::endl;
-        lock->unlock();
-    }
-public:
-    // stop
-    std::queue<Message*> incomeMessages;
-    
-    Stop(std::mutex * lock) {
-        this->lock = lock;
-    }
-    
-    void receive(Message * m) {
-        log("stop received a message");
-        incomeMessages.push(m);
-    }
-    
-    void process() {
-        log("processing Stop");
-        if (!incomeMessages.empty()) {
-            log("Mock message : " + std::to_string(incomeMessages.front()->getValue()));
-            incomeMessages.pop();
-        }
-    }
-    
-    bool shouldTerminate() {
-        return stopSign;
-    }
-    
-    void setStopSign(bool s) {
-        stopSign = s;
-    }
-    
-    ~Stop(){
-    }
-};
 
-class Bus {
-private:
-    bool stopSign = 0;
-    std::mutex * lock;
-    
-    void log(std::string msg) {
-        lock->lock();
-        std::cout << msg << std::endl;
-        lock->unlock();
-    }
-    
-public:
-    // bus
-    std::queue<Message*> incomeMessages;
-    std::vector<Stop*> subscribers;
-    
-    Bus(std::mutex * lock) {
-        this->lock = lock;
-    }
-    
-    void receive(Message * m) {
-        log("bus received a message");
-        this->incomeMessages.push(m);
-    }
-    
-    void post(Message * m, Stop * s) {
-        log("bus sent message to stop");
-        s->receive(m);
-    }
-    
-    void process() {
-        log("processing bus");
-        if (!incomeMessages.empty() && !subscribers.empty()) {
-            post(incomeMessages.front(), subscribers[0]);
-            incomeMessages.pop();
-        }
-    }
-    
-    void addStop(Stop * stop) {
-        this->subscribers.push_back(stop);
-    }
-    
-    bool shouldTerminate() {
-        return stopSign;
-    }
-    
-    void setStopSign(bool s) {
-        stopSign = s;
-    }
-    
-    ~Bus(){
-    }
-};
 
 void runStop(Stop * a) {
     while (!a->shouldTerminate()) {
@@ -135,10 +50,14 @@ void runBus(Bus * b) {
 int main(int, char const**)
 {
     std::mutex lock;
-    Stop * a = new Stop(&lock);
+    Stop * stop1 = new Stop(&lock);
+    Stop * stop2 = new Stop(&lock);
     Bus * b = new Bus(&lock);
-    b->addStop(a);
-    std::thread tStop(runStop, a);
+    stop1->setId(b->addStop(stop1));
+    stop2->setId(b->addStop(stop2));
+    
+    std::thread tStop1(runStop, stop1);
+    std::thread tStop2(runStop, stop2);
     std::thread tBus(runBus, b);
 
     // TODO: start threads for different components
@@ -173,10 +92,9 @@ int main(int, char const**)
     
     // TODO: move to console class
     std::string cmd;
-    Message * m1 = new Message(1);
-    Message * m2 = new Message(2);
-    Message * m3 = new Message(3);
-    Message * m4 = new Message(4);
+    
+    // test message, send 1 to bus
+    Message * m1 = new Message(1, stop1);
     
     while(1) {
         std::cout << "What do you want?" << std::endl;
@@ -197,19 +115,18 @@ int main(int, char const**)
         }
         
         if (cmd.compare("send1") == 0) {
-            b->receive(m1);
+            stop1->post(b, m1);
         }
     }
     std::cout << "QUIT" << std::endl;
-    delete m1;
-    delete m2;
-    delete m3;
-    delete m4;
-    a->setStopSign(true);
+    stop1->setStopSign(true);
+    stop2->setStopSign(true);
     b->setStopSign(true);
-    tStop.join();
+    tStop1.join();
+    tStop2.join();
     tBus.join();
-    delete a;
+    delete stop1;
+    delete stop2;
     delete b;
     return EXIT_SUCCESS;
 }
